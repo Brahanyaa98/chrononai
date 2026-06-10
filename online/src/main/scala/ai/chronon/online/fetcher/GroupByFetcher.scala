@@ -7,6 +7,8 @@ import ai.chronon.online.OnlineDerivationUtil.applyDeriveFunc
 import ai.chronon.online.fetcher.Fetcher.{ColumnSpec, PrefixedRequest, Request, Response}
 import ai.chronon.online.fetcher.FetcherCache.{BatchResponses, CachedBatchResponse}
 import ai.chronon.online._
+import ai.chronon.online.metrics.OtelTracing
+import io.opentelemetry.api.common.{AttributeKey, Attributes}
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -19,7 +21,8 @@ import scala.util.{Failure, Success, Try}
 class GroupByFetcher(fetchContext: FetchContext, metadataStore: MetadataStore)
     extends GroupByResponseHandler(fetchContext, metadataStore) {
 
-  implicit val executionContext: ExecutionContext = fetchContext.getOrCreateExecutionContext
+  implicit val executionContext: ExecutionContext =
+    OtelTracing.instance.contextPropagatingEc(fetchContext.getOrCreateExecutionContext)
 
   @transient private implicit lazy val logger: Logger = LoggerFactory.getLogger(getClass)
 
@@ -179,7 +182,12 @@ class GroupByFetcher(fetchContext: FetchContext, metadataStore: MetadataStore)
 
     val startTimeMs = System.currentTimeMillis()
     val kvResponseFuture: Future[Seq[GetResponse]] = if (allRequestsToFetch.nonEmpty) {
-      fetchContext.kvStore.multiGet(allRequestsToFetch)
+      OtelTracing.instance.withSpan(
+        "chronon.kv_store.multi_get",
+        Attributes.of(AttributeKey.longKey("request.count"), allRequestsToFetch.length.toLong)
+      ) {
+        fetchContext.kvStore.multiGet(allRequestsToFetch)
+      }
     } else {
       Future(Seq.empty[GetResponse])
     }

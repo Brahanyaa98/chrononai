@@ -153,13 +153,20 @@ object Metrics {
 
       reporter.toLowerCase match {
         case "otel" | "opentelemetry" =>
-          if (metricsEnabled) {
+          // Build one OpenTelemetrySdk for both metrics and tracing so they share the same
+          // resource attributes, propagator config, and SDK lifecycle. When tracing is enabled
+          // OtelMetricsReporter.buildOpenTelemetryClient also attaches a SdkTracerProvider.
+          val openTelemetry = if (metricsEnabled) {
             val metricReader = OtelMetricsReporter.buildOtelMetricReader()
-            val openTelemetry = OtelMetricsReporter.buildOpenTelemetryClient(metricReader)
-            new OtelMetricsReporter(openTelemetry)
+            OtelMetricsReporter.buildOpenTelemetryClient(metricReader)
           } else {
-            new OtelMetricsReporter(OpenTelemetry.noop())
+            OpenTelemetry.noop()
           }
+          // Register the global tracing singleton from the same OpenTelemetry instance so
+          // fetcher code (and the Java service layer) can call OtelTracing.instance() without
+          // carrying an extra constructor parameter through the whole call chain.
+          OtelTracing.globalInstance = new OtelTracing(openTelemetry)
+          new OtelMetricsReporter(openTelemetry)
         case _ =>
           throw new IllegalArgumentException(s"Unknown metrics reporter: $reporter. Only opentelemetry is supported.")
       }

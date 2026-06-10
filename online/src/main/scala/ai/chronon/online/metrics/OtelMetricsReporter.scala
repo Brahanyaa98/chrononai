@@ -13,6 +13,7 @@ import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.metrics.SdkMeterProvider
 import io.opentelemetry.sdk.metrics.export.{MetricReader, PeriodicMetricReader}
 import io.opentelemetry.sdk.resources.Resource
+import io.opentelemetry.sdk.trace.SdkTracerProvider
 
 import java.time.Duration
 import scala.collection.concurrent.TrieMap
@@ -181,10 +182,37 @@ object OtelMetricsReporter {
     // immediately.
     Runtime.getRuntime.addShutdownHook(shutdownFlushHook(meterProvider, ShutdownFlushTimeoutMillis))
 
-    OpenTelemetrySdk.builder
+    val sdkBuilder = OpenTelemetrySdk.builder
       .setMeterProvider(meterProvider)
       .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance))
-      .build
+
+    // Add a SdkTracerProvider to the same SDK when tracing is enabled — one SDK, two signal
+    // providers. This keeps the resource attributes and propagator config consistent between
+    // metrics and traces without instantiating a second OpenTelemetrySdk.
+    val finalBuilder = if (OtelTracing.isEnabled) {
+      val tracerProvider = OtelTracing.buildTracerProvider(resource)
+      Runtime.getRuntime.addShutdownHook(shutdownTracerHook(tracerProvider, ShutdownFlushTimeoutMillis))
+      sdkBuilder.setTracerProvider(tracerProvider)
+    } else {
+      sdkBuilder
+    }
+
+    finalBuilder.build
+  }
+
+  private[metrics] def shutdownTracerHook(provider: SdkTracerProvider, timeoutMillis: Long): Thread = {
+    val t = new Thread(new Runnable {
+      override def run(): Unit = {
+        try {
+          provider.forceFlush().join(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+          provider.shutdown().join(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch {
+          case _: Throwable => ()
+        }
+      }
+    })
+    t.setName("otel-tracer-flush-shutdown")
+    t
   }
 
   private[metrics] def shutdownFlushHook(provider: SdkMeterProvider, timeoutMillis: Long): Thread = {

@@ -34,7 +34,8 @@ import ai.chronon.online.fetcher.Fetcher.{
   ResponseWithContext
 }
 import ai.chronon.online.fetcher.FeaturesResponseType.ResponseType
-import ai.chronon.online.metrics.{Metrics, TTLCache}
+import ai.chronon.online.metrics.{Metrics, OtelTracing, TTLCache}
+import io.opentelemetry.api.common.{AttributeKey, Attributes}
 import ai.chronon.online.serde._
 import com.google.gson.Gson
 import org.apache.avro.generic.GenericRecord
@@ -193,7 +194,10 @@ class Fetcher(val kvStore: KVStore,
                  joinConfTtlMillis,
                  joinCodecTtlMillis)
 
-  implicit private val executionContext: ExecutionContext = fetchContext.getOrCreateExecutionContext
+  // Wrap the execution context so OTel Context (active span) is propagated to Future callbacks
+  // running on pool threads. Without this, child spans created in async callbacks would be orphaned.
+  implicit private val executionContext: ExecutionContext =
+    OtelTracing.instance.contextPropagatingEc(fetchContext.getOrCreateExecutionContext)
   val metadataStore: MetadataStore = new MetadataStore(fetchContext)
   private val joinPartFetcher = new JoinPartFetcher(fetchContext, metadataStore)
 
@@ -228,10 +232,26 @@ class Fetcher(val kvStore: KVStore,
   }
 
   def fetchGroupBys(requests: Seq[Request]): Future[Seq[Response]] = {
-    joinPartFetcher.fetchGroupBys(requests)
+    val attrs = Attributes.of(
+      AttributeKey.stringKey(Metrics.Tag.GroupBy), requests.iterator.map(_.name).distinct.mkString(","),
+      AttributeKey.longKey("request.count"), requests.size.toLong
+    )
+    OtelTracing.instance.withSpan("chronon.fetch.group_bys", attrs) {
+      joinPartFetcher.fetchGroupBys(requests)
+    }
   }
 
   def fetchJoin(requests: Seq[Request], joinConf: Option[api.Join] = None): Future[Seq[Response]] = {
+    val joinSpanAttrs = Attributes.of(
+      AttributeKey.stringKey(Metrics.Tag.Join), requests.iterator.map(_.name).distinct.mkString(","),
+      AttributeKey.longKey("request.count"), requests.size.toLong
+    )
+    OtelTracing.instance.withSpan("chronon.fetch.join", joinSpanAttrs) {
+      fetchJoinInternal(requests, joinConf)
+    }
+  }
+
+  private def fetchJoinInternal(requests: Seq[Request], joinConf: Option[api.Join]): Future[Seq[Response]] = {
     val ts = System.currentTimeMillis()
     val cachedJoinCodecsByName = mutable.Map.empty[String, Try[JoinCodec]]
     val joinCodecForName: String => Option[Try[JoinCodec]] = joinConf match {
@@ -639,7 +659,16 @@ class Fetcher(val kvStore: KVStore,
 
   // Pulling external features in a batched fashion across services in-parallel
   private def fetchExternal(joinRequests: Seq[Request]): Future[Seq[Response]] = {
+    val attrs = Attributes.of(
+      AttributeKey.stringKey(Metrics.Tag.Join), joinRequests.iterator.map(_.name).distinct.mkString(","),
+      AttributeKey.longKey("request.count"), joinRequests.size.toLong
+    )
+    OtelTracing.instance.withSpan("chronon.fetch.external", attrs) {
+      fetchExternalInternal(joinRequests)
+    }
+  }
 
+  private def fetchExternalInternal(joinRequests: Seq[Request]): Future[Seq[Response]] = {
     val startTime = System.currentTimeMillis()
     val resultMap = new mutable.LinkedHashMap[Request, Try[mutable.HashMap[String, Any]]]
     var invalidCount = 0

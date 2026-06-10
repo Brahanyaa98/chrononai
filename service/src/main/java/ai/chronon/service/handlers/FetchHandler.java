@@ -4,17 +4,27 @@ import ai.chronon.online.JTry;
 import ai.chronon.online.JavaFetcher;
 import ai.chronon.online.JavaRequest;
 import ai.chronon.online.JavaResponse;
+import ai.chronon.online.metrics.OtelTracing;
 import ai.chronon.service.model.GetFeaturesResponse;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
+import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RequestBody;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +52,20 @@ public class FetchHandler implements Handler<RoutingContext> {
     private static final Logger logger = LoggerFactory.getLogger(FetchHandler.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    // W3C TraceContext header extractor for Vert.x routing contexts.
+    private static final TextMapGetter<RoutingContext> TRACE_CONTEXT_GETTER =
+            new TextMapGetter<RoutingContext>() {
+                @Override
+                public Iterable<String> keys(RoutingContext carrier) {
+                    return carrier.request().headers().names();
+                }
+                @Nullable
+                @Override
+                public String get(@Nullable RoutingContext carrier, String key) {
+                    return carrier == null ? null : carrier.request().headers().get(key);
+                }
+            };
+
     private final JavaFetcher fetcher;
     private final BiFunction<JavaFetcher, List<JavaRequest>, CompletableFuture<List<JavaResponse>>> fetchFunction;
 
@@ -57,12 +81,34 @@ public class FetchHandler implements Handler<RoutingContext> {
 
         logger.debug("Retrieving {}", entityName);
 
+        // Extract incoming W3C trace context so distributed traces stitch correctly across
+        // service boundaries. If no traceparent header is present this produces a root context.
+        OtelTracing otelTracing = OtelTracing.instance();
+        Context parentContext = otelTracing.openTelemetry()
+                .getPropagators()
+                .getTextMapPropagator()
+                .extract(Context.current(), ctx, TRACE_CONTEXT_GETTER);
+
+        Span span = otelTracing.openTelemetry()
+                .getTracer("ai.chronon")
+                .spanBuilder("http.fetch")
+                .setParent(parentContext)
+                .setSpanKind(SpanKind.SERVER)
+                .setAttribute(AttributeKey.stringKey("chronon.entity.name"), entityName)
+                .setAttribute(AttributeKey.stringKey("http.method"), ctx.request().method().name())
+                .startSpan();
+        Scope scope = span.makeCurrent();
+
         String requestBody = ctx.body().asString();
         JTry<List<JavaRequest>> maybeRequest = parseJavaRequest(entityName, requestBody);
 
         if (! maybeRequest.isSuccess()) {
 
             logger.error("Unable to parse request body", maybeRequest.getException());
+            scope.close();
+            span.recordException(maybeRequest.getException());
+            span.setStatus(StatusCode.ERROR);
+            span.end();
 
             List<String> errorMessages = Collections.singletonList(maybeRequest.getException().getMessage());
 
@@ -87,6 +133,10 @@ public class FetchHandler implements Handler<RoutingContext> {
 
         maybeFeatureResponses.onSuccess(
                 resultList -> {
+                    scope.close();
+                    span.setStatus(StatusCode.OK);
+                    span.end();
+
                     // as this is a bulkGet request, we might have some successful and some failed responses
                     // we return the responses in the same order as they come in and mark them as successful / failed based
                     // on the lookups
@@ -101,6 +151,10 @@ public class FetchHandler implements Handler<RoutingContext> {
 
         maybeFeatureResponses.onFailure(
                 err -> {
+                    scope.close();
+                    span.recordException(err);
+                    span.setStatus(StatusCode.ERROR);
+                    span.end();
 
                     List<String> failureMessages = Collections.singletonList(err.getMessage());
 
