@@ -45,8 +45,8 @@ class OtelTracing(val openTelemetry: OpenTelemetry) {
     * spans started synchronously inside `f` correctly inherit the parent — deeper async children
     * rely on a context-propagating EC (see [[contextPropagatingEc]]).
     */
-  def withSpan[T](spanName: String, attributes: Attributes = Attributes.empty())(
-      f: => Future[T])(implicit ec: ExecutionContext): Future[T] = {
+  def withSpan[T](spanName: String, attributes: Attributes = Attributes.empty())(f: => Future[T])(implicit
+      ec: ExecutionContext): Future[T] = {
     val span: Span = tracer.spanBuilder(spanName).setAllAttributes(attributes).startSpan()
     val scope: Scope = span.makeCurrent()
     val fut =
@@ -131,7 +131,8 @@ object OtelTracing {
 
     logger.info(s"Building OTel tracer provider: protocol=$protocol, url=$exporterUrl")
 
-    SdkTracerProvider.builder()
+    SdkTracerProvider
+      .builder()
       .setResource(resource)
       .addSpanProcessor(BatchSpanProcessor.builder(spanExporter).build())
       .build()

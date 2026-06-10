@@ -232,7 +232,8 @@ class Fetcher(val kvStore: KVStore,
   }
 
   def fetchGroupBys(requests: Seq[Request]): Future[Seq[Response]] = {
-    val attrs = Attributes.builder()
+    val attrs = Attributes
+      .builder()
       .put(Metrics.Tag.GroupBy, requests.map(_.name).distinct.mkString(","))
       .put("request.count", requests.size.toLong)
       .build()
@@ -242,7 +243,8 @@ class Fetcher(val kvStore: KVStore,
   }
 
   def fetchJoin(requests: Seq[Request], joinConf: Option[api.Join] = None): Future[Seq[Response]] = {
-    val joinSpanAttrs = Attributes.builder()
+    val joinSpanAttrs = Attributes
+      .builder()
       .put(Metrics.Tag.Join, requests.map(_.name).distinct.mkString(","))
       .put("request.count", requests.size.toLong)
       .build()
@@ -659,7 +661,8 @@ class Fetcher(val kvStore: KVStore,
 
   // Pulling external features in a batched fashion across services in-parallel
   private def fetchExternal(joinRequests: Seq[Request]): Future[Seq[Response]] = {
-    val attrs = Attributes.builder()
+    val attrs = Attributes
+      .builder()
       .put(Metrics.Tag.Join, joinRequests.map(_.name).distinct.mkString(","))
       .put("request.count", joinRequests.size.toLong)
       .build()
