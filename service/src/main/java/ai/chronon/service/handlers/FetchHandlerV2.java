@@ -24,7 +24,6 @@ import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -46,9 +45,8 @@ public class FetchHandlerV2 implements Handler<RoutingContext> {
                 public Iterable<String> keys(RoutingContext carrier) {
                     return carrier.request().headers().names();
                 }
-                @Nullable
                 @Override
-                public String get(@Nullable RoutingContext carrier, String key) {
+                public String get(RoutingContext carrier, String key) {
                     return carrier == null ? null : carrier.request().headers().get(key);
                 }
             };
