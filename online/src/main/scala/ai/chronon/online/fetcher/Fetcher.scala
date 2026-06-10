@@ -35,7 +35,7 @@ import ai.chronon.online.fetcher.Fetcher.{
 }
 import ai.chronon.online.fetcher.FeaturesResponseType.ResponseType
 import ai.chronon.online.metrics.{Metrics, OtelTracing, TTLCache}
-import io.opentelemetry.api.common.{AttributeKey, Attributes}
+import io.opentelemetry.api.common.Attributes
 import ai.chronon.online.serde._
 import com.google.gson.Gson
 import org.apache.avro.generic.GenericRecord
@@ -232,20 +232,20 @@ class Fetcher(val kvStore: KVStore,
   }
 
   def fetchGroupBys(requests: Seq[Request]): Future[Seq[Response]] = {
-    val attrs = Attributes.of(
-      AttributeKey.stringKey(Metrics.Tag.GroupBy), requests.map(_.name).distinct.mkString(","),
-      AttributeKey.longKey("request.count"), requests.size.toLong
-    )
+    val attrs = Attributes.builder()
+      .put(Metrics.Tag.GroupBy, requests.map(_.name).distinct.mkString(","))
+      .put("request.count", requests.size.toLong)
+      .build()
     OtelTracing.instance.withSpan("chronon.fetch.group_bys", attrs) {
       joinPartFetcher.fetchGroupBys(requests)
     }
   }
 
   def fetchJoin(requests: Seq[Request], joinConf: Option[api.Join] = None): Future[Seq[Response]] = {
-    val joinSpanAttrs = Attributes.of(
-      AttributeKey.stringKey(Metrics.Tag.Join), requests.map(_.name).distinct.mkString(","),
-      AttributeKey.longKey("request.count"), requests.size.toLong
-    )
+    val joinSpanAttrs = Attributes.builder()
+      .put(Metrics.Tag.Join, requests.map(_.name).distinct.mkString(","))
+      .put("request.count", requests.size.toLong)
+      .build()
     OtelTracing.instance.withSpan("chronon.fetch.join", joinSpanAttrs) {
       fetchJoinInternal(requests, joinConf)
     }
@@ -659,10 +659,10 @@ class Fetcher(val kvStore: KVStore,
 
   // Pulling external features in a batched fashion across services in-parallel
   private def fetchExternal(joinRequests: Seq[Request]): Future[Seq[Response]] = {
-    val attrs = Attributes.of(
-      AttributeKey.stringKey(Metrics.Tag.Join), joinRequests.map(_.name).distinct.mkString(","),
-      AttributeKey.longKey("request.count"), joinRequests.size.toLong
-    )
+    val attrs = Attributes.builder()
+      .put(Metrics.Tag.Join, joinRequests.map(_.name).distinct.mkString(","))
+      .put("request.count", joinRequests.size.toLong)
+      .build()
     OtelTracing.instance.withSpan("chronon.fetch.external", attrs) {
       fetchExternalInternal(joinRequests)
     }

@@ -32,8 +32,12 @@ class OtelTracing(val openTelemetry: OpenTelemetry) {
     * active span, breaking parent-child span relationships across async boundaries.
     */
   def contextPropagatingEc(ec: ExecutionContext): ExecutionContext = {
-    val wrappedExecutor: Executor = Context.taskWrapping(ec.execute _)
-    ExecutionContext.fromExecutor(wrappedExecutor)
+    // Wrap as explicit Executor — Scala 2.12 SAM conversion doesn't apply to eta-expanded
+    // `ec.execute _` (type Runnable => Unit) when the target type is java.util.concurrent.Executor.
+    val asExecutor: Executor = new Executor {
+      override def execute(command: Runnable): Unit = ec.execute(command)
+    }
+    ExecutionContext.fromExecutor(Context.taskWrapping(asExecutor))
   }
 
   /** Run a Future-producing block inside a named span. The span is ended (OK or ERROR) when the

@@ -8,7 +8,7 @@ import ai.chronon.online.fetcher.Fetcher.{ColumnSpec, PrefixedRequest, Request, 
 import ai.chronon.online.fetcher.FetcherCache.{BatchResponses, CachedBatchResponse}
 import ai.chronon.online._
 import ai.chronon.online.metrics.OtelTracing
-import io.opentelemetry.api.common.{AttributeKey, Attributes}
+import io.opentelemetry.api.common.Attributes
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -184,7 +184,7 @@ class GroupByFetcher(fetchContext: FetchContext, metadataStore: MetadataStore)
     val kvResponseFuture: Future[Seq[GetResponse]] = if (allRequestsToFetch.nonEmpty) {
       OtelTracing.instance.withSpan(
         "chronon.kv_store.multi_get",
-        Attributes.of(AttributeKey.longKey("request.count"), allRequestsToFetch.length.toLong)
+        Attributes.builder().put("request.count", allRequestsToFetch.length.toLong).build()
       ) {
         fetchContext.kvStore.multiGet(allRequestsToFetch)
       }
