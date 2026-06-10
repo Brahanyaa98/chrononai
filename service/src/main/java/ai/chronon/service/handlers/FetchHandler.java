@@ -93,7 +93,6 @@ public class FetchHandler implements Handler<RoutingContext> {
                 .setParent(parentContext)
                 .setSpanKind(SpanKind.SERVER)
                 .setAttribute(AttributeKey.stringKey("chronon.entity.name"), entityName)
-                .setAttribute(AttributeKey.stringKey("http.method"), ctx.request().method().name())
                 .startSpan();
         Scope scope = span.makeCurrent();
 
