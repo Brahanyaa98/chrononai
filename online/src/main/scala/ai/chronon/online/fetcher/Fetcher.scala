@@ -233,7 +233,7 @@ class Fetcher(val kvStore: KVStore,
 
   def fetchGroupBys(requests: Seq[Request]): Future[Seq[Response]] = {
     val attrs = Attributes.of(
-      AttributeKey.stringKey(Metrics.Tag.GroupBy), requests.iterator.map(_.name).distinct.mkString(","),
+      AttributeKey.stringKey(Metrics.Tag.GroupBy), requests.map(_.name).distinct.mkString(","),
       AttributeKey.longKey("request.count"), requests.size.toLong
     )
     OtelTracing.instance.withSpan("chronon.fetch.group_bys", attrs) {
@@ -243,7 +243,7 @@ class Fetcher(val kvStore: KVStore,
 
   def fetchJoin(requests: Seq[Request], joinConf: Option[api.Join] = None): Future[Seq[Response]] = {
     val joinSpanAttrs = Attributes.of(
-      AttributeKey.stringKey(Metrics.Tag.Join), requests.iterator.map(_.name).distinct.mkString(","),
+      AttributeKey.stringKey(Metrics.Tag.Join), requests.map(_.name).distinct.mkString(","),
       AttributeKey.longKey("request.count"), requests.size.toLong
     )
     OtelTracing.instance.withSpan("chronon.fetch.join", joinSpanAttrs) {
@@ -660,7 +660,7 @@ class Fetcher(val kvStore: KVStore,
   // Pulling external features in a batched fashion across services in-parallel
   private def fetchExternal(joinRequests: Seq[Request]): Future[Seq[Response]] = {
     val attrs = Attributes.of(
-      AttributeKey.stringKey(Metrics.Tag.Join), joinRequests.iterator.map(_.name).distinct.mkString(","),
+      AttributeKey.stringKey(Metrics.Tag.Join), joinRequests.map(_.name).distinct.mkString(","),
       AttributeKey.longKey("request.count"), joinRequests.size.toLong
     )
     OtelTracing.instance.withSpan("chronon.fetch.external", attrs) {
